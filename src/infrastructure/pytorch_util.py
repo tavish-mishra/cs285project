@@ -142,3 +142,9 @@ def to_numpy(tensor: Union[torch.Tensor, dict]):
         return {k: to_numpy(v) for k, v in tensor.items()}
     else:
         return tensor.to("cpu").detach().numpy()
+
+
+def soft_update(target: nn.Module, source: nn.Module, tau: float) -> None:
+    """Polyak-average source parameters into target: θ_target ← τ·θ_source + (1-τ)·θ_target."""
+    for tp, sp in zip(target.parameters(), source.parameters()):
+        tp.data.copy_(tau * sp.data + (1.0 - tau) * tp.data)

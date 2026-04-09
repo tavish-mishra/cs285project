@@ -66,6 +66,17 @@ class MLPPolicy(nn.Module):
 
         return action
 
+    @torch.no_grad()
+    def get_action_and_log_prob(self, obs: np.ndarray):
+        """Returns (action, log_prob) both as numpy arrays."""
+        obs_tensor = ptu.from_numpy(obs)
+        distribution = self.forward(obs_tensor)
+        action = distribution.sample()
+        log_prob = distribution.log_prob(action)
+        if not self.discrete:
+            log_prob = log_prob.sum(dim=-1)
+        return ptu.to_numpy(action), ptu.to_numpy(log_prob)
+
     def forward(self, obs: torch.FloatTensor):
         """
         This function defines the forward pass of the network.  You can return anything you want, but you should be
@@ -95,24 +106,40 @@ class MLPPolicyPG(MLPPolicy):
         obs: np.ndarray,
         actions: np.ndarray,
         advantages: np.ndarray,
+        log_probs_old: np.ndarray = None,
+        kl_coef: float = 0.0,
     ) -> dict:
-        """Implements the policy gradient actor update."""
+        """Implements the policy gradient actor update.
+
+        If log_probs_old is provided, uses importance sampling (off-policy correction)
+        and adds a KL divergence penalty scaled by kl_coef.
+        """
         obs = ptu.from_numpy(obs)
         actions = ptu.from_numpy(actions)
         advantages = ptu.from_numpy(advantages)
 
-        # TODO: compute the policy gradient actor loss
         distribution = self.forward(obs)
-        log_probs = distribution.log_prob(actions)
+        log_probs_new = distribution.log_prob(actions)
         if not self.discrete:
-            log_probs = log_probs.sum(dim=-1)
-        loss = (-1 * log_probs * advantages).mean()
+            log_probs_new = log_probs_new.sum(dim=-1)
 
-        # TODO: perform an optimizer step
+        if log_probs_old is not None:
+            log_probs_old = ptu.from_numpy(log_probs_old)
+            ratio = (log_probs_new - log_probs_old).exp()
+            pg_loss = -(ratio * advantages).mean()
+            kl = (log_probs_old - log_probs_new).mean()
+            loss = pg_loss + kl_coef * kl
+        else:
+            pg_loss = (-log_probs_new * advantages).mean()
+            kl = torch.tensor(0.0)
+            loss = pg_loss
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
         return {
             "Actor Loss": loss.item(),
+            "PG Loss": pg_loss.item(),
+            "KL": kl.item(),
         }

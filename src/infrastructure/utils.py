@@ -65,6 +65,8 @@ def sample_trajectory(
     obs, acs, rewards, next_obs, terminals, image_obs = [], [], [], [], [], []
     steps = 0
 
+    log_probs = []
+
     while True:
         # render an image
         if render:
@@ -73,7 +75,11 @@ def sample_trajectory(
                 cv2.resize(img, dsize=(250, 250), interpolation=cv2.INTER_CUBIC)
             )
 
-        ac = policy.get_action(ob)
+        if hasattr(policy, 'get_action_and_log_prob'):
+            ac, lp = policy.get_action_and_log_prob(ob)
+            log_probs.append(lp)
+        else:
+            ac = policy.get_action(ob)
         next_ob, rew, terminated, truncated, info = env.step(ac)
         done = terminated or truncated
         steps += 1
@@ -105,6 +111,7 @@ def sample_trajectory(
         "action": np.array(acs, dtype=np.float32),
         "next_observation": np.array(next_obs, dtype=np.float32),
         "terminal": np.array(terminals, dtype=np.float32),
+        "log_prob": np.array(log_probs, dtype=np.float32) if log_probs else None,
         "episode_statistics": episode_statistics,
     }
 

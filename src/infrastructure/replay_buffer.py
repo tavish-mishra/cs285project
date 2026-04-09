@@ -10,16 +10,20 @@ class ReplayBuffer:
         self.rewards = None
         self.next_observations = None
         self.dones = None
+        self.log_probs = None
 
     def sample(self, batch_size):
         rand_indices = np.random.randint(0, self.size, size=(batch_size,)) % self.max_size
-        return {
+        batch = {
             "observations": self.observations[rand_indices],
             "actions": self.actions[rand_indices],
             "rewards": self.rewards[rand_indices],
             "next_observations": self.next_observations[rand_indices],
             "dones": self.dones[rand_indices],
         }
+        if self.log_probs is not None:
+            batch["log_probs"] = self.log_probs[rand_indices]
+        return batch
 
     def __len__(self):
         return self.size
@@ -32,6 +36,7 @@ class ReplayBuffer:
         reward: np.ndarray,
         next_observation: np.ndarray,
         done: np.ndarray,
+        log_prob: np.ndarray = None,
     ):
         """
         Insert a single transition into the replay buffer.
@@ -62,6 +67,8 @@ class ReplayBuffer:
                 (self.max_size, *next_observation.shape), dtype=next_observation.dtype
             )
             self.dones = np.empty((self.max_size, *done.shape), dtype=done.dtype)
+            if log_prob is not None:
+                self.log_probs = np.empty((self.max_size, *np.asarray(log_prob).shape), dtype=np.float32)
 
         assert observation.shape == self.observations.shape[1:]
         assert action.shape == self.actions.shape[1:]
@@ -74,5 +81,7 @@ class ReplayBuffer:
         self.rewards[self.size % self.max_size] = reward
         self.next_observations[self.size % self.max_size] = next_observation
         self.dones[self.size % self.max_size] = done
+        if log_prob is not None and self.log_probs is not None:
+            self.log_probs[self.size % self.max_size] = log_prob
 
         self.size += 1
