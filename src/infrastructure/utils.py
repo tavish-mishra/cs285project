@@ -98,7 +98,7 @@ def sample_trajectory(
         if rollout_done:
             break
 
-    episode_statistics = {"l": steps, "r": np.sum(rewards), "s": info["success"]}
+    episode_statistics = {"l": steps, "r": np.sum(rewards), "s": info.get("success", False)}
     if "episode" in info:
         episode_statistics.update(info["episode"])
 
