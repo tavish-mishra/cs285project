@@ -1,25 +1,26 @@
-import time
-import argparse
+import os
+import sys
 from pathlib import Path
+
+# Ensure src/ is on sys.path so local Modal execution can resolve imports.
+_src_dir = str(Path(__file__).resolve().parents[1])
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
 
 import modal
 
-from scripts.run import main, setup_arguments
-
-
-APP_NAME = "hw5-offline-rl"
+APP_NAME = "cs285-project"
 NETRC_PATH = Path("~/.netrc").expanduser()
 PROJECT_DIR = "/root/project"
 VOLUME_PATH = "/root/exp"
-DEFAULT_GPU = "A10"
+DEFAULT_GPU = "H100"
 DEFAULT_CPU = 2.0
 DEFAULT_MEMORY = 4096  # MB
-volume = modal.Volume.from_name("hw5-offline-rl-volume", create_if_missing=True)
+volume = modal.Volume.from_name("cs285-final-project", create_if_missing=True)
 
 
 def load_gitignore_patterns() -> list[str]:
     """Translate .gitignore entries into Modal ignore globs."""
-
     if not modal.is_local():
         return []
 
@@ -42,18 +43,26 @@ def load_gitignore_patterns() -> list[str]:
     return patterns
 
 
-# Build a container image with the project's dependencies using uv.
-image = modal.Image.debian_slim().apt_install("libgl1", "libglib2.0-0").uv_sync()
-# Download OGBench datasets.
-image = image.run_commands("python -c \"import ogbench;ogbench.download_datasets(['cube-single-play-v0', 'antsoccer-arena-navigate-v0', 'antmaze-medium-navigate-v0'])\"")
-# Copy .netrc for wandb logging.
+image = (
+    modal.Image.debian_slim()
+    .apt_install("libgl1", "libglib2.0-0")
+    .uv_sync()
+    .run_commands(
+        "python -c \""
+        "import minari; "
+        "minari.download_dataset('mujoco/humanoid/medium-v0'); "
+        "minari.download_dataset('mujoco/humanoid/expert-v0'); "
+        "minari.download_dataset('mujoco/walker2d/medium-v0'); "
+        "minari.download_dataset('mujoco/walker2d/expert-v0')"
+        "\""
+    )
+)
 if NETRC_PATH.is_file():
     image = image.add_local_file(
         NETRC_PATH,
         remote_path="/root/.netrc",
         copy=True,
     )
-# Copy the current directory.
 image = image.add_local_dir(
     ".", remote_path=PROJECT_DIR, ignore=load_gitignore_patterns()
 )
@@ -66,14 +75,56 @@ env = {
 }
 
 
-@app.function(volumes={VOLUME_PATH: volume}, timeout=60 * 60 * 12, env=env, image=image, gpu=DEFAULT_GPU, cpu=DEFAULT_CPU, memory=DEFAULT_MEMORY)
-def hw5_modal_remote(*args: str) -> None:
-    args = setup_arguments(args)
-    if args.njobs is not None and len(args.job_specs) > 0:
-        # Run n jobs in parallel
-        from scripts.run_njobs import main_njobs
-        main_njobs(job_specs=args.job_specs, njobs=args.njobs)
-    else:
-        # Run a single job
-        main(args)
+@app.function(
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 60 * 12,
+    env=env,
+    image=image,
+    gpu=DEFAULT_GPU,
+    cpu=DEFAULT_CPU,
+    memory=DEFAULT_MEMORY,
+)
+def modal_remote(*args: str) -> None:
+    from scripts.run import main, setup_arguments
+    parsed = setup_arguments(args)
+    main(parsed)
     volume.commit()
+
+
+@app.local_entrypoint()
+def cli(
+    env_name: str = "Humanoid-v5",
+    mode: str = "offline",
+    base_config: str = "sacbc",
+    minari_dataset: str = "",
+    training_steps: int = 500_000,
+    dataset_size: int = 100_000,
+    seed: int = 0,
+    run_group: str = "Debug",
+    log_interval: int = 1_000,
+    eval_interval: int = 10_000,
+    num_eval_trajectories: int = 10,
+    alpha: float = 0.0,
+    no_gpu: bool = False,
+):
+    """Launch a training run on Modal. All flags map to run.py arguments."""
+    args: list[str] = [
+        "--mode", mode,
+        "--base_config", base_config,
+        "--env_name", env_name,
+        "--seed", str(seed),
+        "--training_steps", str(training_steps),
+        "--dataset_size", str(dataset_size),
+        "--run_group", run_group,
+        "--log_interval", str(log_interval),
+        "--eval_interval", str(eval_interval),
+        "--num_eval_trajectories", str(num_eval_trajectories),
+    ]
+    if minari_dataset:
+        args += ["--minari_dataset", minari_dataset]
+    if alpha != 0.0:
+        args += ["--alpha", str(alpha)]
+    if no_gpu:
+        args.append("--no_gpu")
+
+    modal_remote.remote(*args)

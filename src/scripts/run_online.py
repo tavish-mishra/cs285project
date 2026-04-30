@@ -1,7 +1,11 @@
-"""Online training loop for off-policy agents on arbitrary gymnasium tasks.
+"""Online training loop for off-policy agents on gymnasium tasks.
 
-Usage:
-    python run_online.py --env_name CartPole-v1 --agent pg --config my_config
+Usage (standalone):
+    python run_online.py --env_name Walker2d-v4
+    python run_online.py --env_name Humanoid-v5 --training_steps 1000000
+
+Via the unified entry point:
+    python run.py --mode online --env_name Humanoid-v5
 """
 
 from __future__ import annotations
@@ -167,7 +171,7 @@ def run_online_training_loop(config: Dict[str, Any], train_logger: Logger, eval_
 
 def setup_arguments(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_name", type=str, required=True, help="Gymnasium env id, e.g. HalfCheetah-v4")
+    parser.add_argument("--env_name", type=str, default="Walker2d-v4", help="Gymnasium env id, e.g. Walker2d-v4, Humanoid-v5")
     parser.add_argument("--agent_config", type=str, default=None, help="Python import path to a config function")
     parser.add_argument("--exp_name", type=str, default=None)
     parser.add_argument("--seed", type=int, default=0)
@@ -182,41 +186,21 @@ def setup_arguments(args=None):
 
 
 def main(args):
-    # Load config from --agent_config (importable dotted path to a function)
-    # Example: --agent_config configs.my_sac_config.sac_config
-    if args.agent_config is not None:
+    agent_config = getattr(args, "agent_config", None)
+    base_config = getattr(args, "base_config", None)
+
+    if agent_config is not None:
         import importlib
-        module_path, fn_name = args.agent_config.rsplit(".", 1)
+        module_path, fn_name = agent_config.rsplit(".", 1)
         module = importlib.import_module(module_path)
         config_fn = getattr(module, fn_name)
         config = config_fn(args.env_name)
+    elif base_config is not None:
+        import configs
+        config = configs.configs[base_config](args.env_name)
     else:
-        # Default fallback: SAC on any continuous-action gym task
-        from agents.sac_agent import SACAgent
-
-        def make_agent(ob_dim, ac_dim, discrete):
-            return SACAgent(
-                ob_dim=ob_dim,
-                ac_dim=ac_dim,
-                discrete=discrete,
-                n_layers=3,
-                layer_size=256,
-                discount=0.99,
-                tau=0.005,
-                learning_rate=3e-4,
-                init_temperature=1.0,
-            )
-
-        config = {
-            "env_name": args.env_name,
-            "make_agent": make_agent,
-            "batch_size": 256,
-            "buffer_size": 1_000_000,
-            "warmup_steps": 5_000,
-            "update_every": 1,
-            "training_steps": args.training_steps,
-            "log_name": f"sac_{args.env_name}",
-        }
+        from configs.sacbc_config import sacbc_config
+        config = sacbc_config(args.env_name)
 
     config["training_steps"] = args.training_steps
     config["seed"] = args.seed
@@ -225,7 +209,7 @@ def main(args):
     args.save_dir = os.path.join("exp", args.run_group, exp_name)
     os.makedirs(args.save_dir, exist_ok=True)
 
-    setup_wandb(project="cs285_online", name=exp_name, group=args.run_group, config=config)
+    setup_wandb(project="cs285_project", name=exp_name, group=args.run_group, config=config)
     train_logger = Logger(os.path.join(args.save_dir, "train.csv"))
     eval_logger = Logger(os.path.join(args.save_dir, "eval.csv"))
 
