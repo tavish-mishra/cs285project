@@ -15,7 +15,7 @@ from networks.rl_networks import Policy, EnsembleCritic, LogParam
 # "medium" datasets come from a partially-trained SAC policy — good diversity
 # for offline RL.  "expert" variants are also available.
 DEFAULT_MINARI_DATASETS = {
-    "Humanoid-v5": "mujoco/humanoid/medium-expert-v0", #Should we try the one mixing expert and medium? "mujoco/humanoid/medium-v0"
+    "Humanoid-v5": "mujoco/humanoid/medium-v0", #Should we try the one mixing expert and medium? "mujoco/humanoid/expert-v0"
     "Walker2d-v5": "mujoco/walker2d/medium-v0",
     "Walker2d-v4": "mujoco/walker2d/medium-v0",
     "HalfCheetah-v5": "mujoco/half_cheetah/medium-v0",
@@ -94,7 +94,7 @@ def sacbc_config(
         import minari
 
         print(f"Loading Minari dataset: {resolved_dataset}")
-        md = minari.load_dataset(resolved_dataset)
+        md = minari.load_dataset(resolved_dataset, download=True)
         env = EpisodeMonitor(md.recover_environment())
 
         total_steps = sum(ep.rewards.shape[0] for ep in md.iterate_episodes())

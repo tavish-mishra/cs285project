@@ -94,7 +94,7 @@ class SACBCAgent(nn.Module):
         q = qs.min(dim=0).values
         q_loss = -q.mean()
 
-        # mses = nn.functional.mse_loss(actor_actions, actions)
+        mses = nn.functional.mse_loss(actor_actions, actions)
         # bc_loss = self.alpha * (1/actions.shape[1]) * mses
         bc_loss = -self.alpha * actor_dists.log_prob(actions).mean() #replaced so that we are actually approximating reverse KL with this constraint
 
