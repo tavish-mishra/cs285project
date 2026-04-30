@@ -42,6 +42,11 @@ def sac_dl_config(
     update_every: int = 1,
     **kwargs,
 ):
+    """
+    TODO: Adding the following parameters and implementing make_divlearn
+
+    Add following parameters: warm-up / DivLearn lr schedule kappa, dl_base_lr (divided by and clipped by kappa), DivLearn N bottleneck rank, DivLearn encoder type, DivLearn encoder layers
+    """
     resolved_dataset = minari_dataset or DEFAULT_MINARI_DATASETS.get(env_name)
 
     def make_actor(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
