@@ -1,5 +1,5 @@
-from agents.sacbc_agent import SACBCAgent
+from agents.sac_dl_agent import SACAgentDivLearn
 
 agents = {
-    "sacbc": SACBCAgent,
+    "sacbc": SACAgentDivLearn,
 }

@@ -7,7 +7,10 @@ import infrastructure.pytorch_util as ptu
 from typing import Callable, Optional, Sequence, Tuple, List
 
 
-class SACBCAgent(nn.Module):
+class SACAgentDivLearn(nn.Module):
+    """
+    Soft Actor-Critic with Div-Learn capabilities
+    """
     def __init__(
         self,
         observation_shape: Sequence[int],
@@ -36,9 +39,6 @@ class SACBCAgent(nn.Module):
         self.critic_optimizer = make_critic_optimizer(self.critic.parameters())
         self.beta_optimizer = make_beta_optimizer(self.beta.parameters())
 
-        # DivLearn stuff
-        self.div_learner = 
-
         self.discount = discount
         self.target_update_rate = target_update_rate
         self.alpha = alpha
@@ -46,15 +46,13 @@ class SACBCAgent(nn.Module):
         self.target_entropy = -action_dim / 2  # Heuristic value (|A| / 2) from the SAC paper.
 
     def get_action(self, observation: np.ndarray):
-        """
-        Used for evaluation.
-        """
+        """Greedy action for eval (tanh of Gaussian mean; matches common SAC eval)."""
         observation = ptu.from_numpy(np.asarray(observation))[None]
-        # Get the mode action from a tanh transformed distribution.
-        action = self.actor(observation).base_dist.base_dist.mode.tanh()
+        with torch.no_grad():
+            base = self.actor(observation).base_dist.base_dist
+            action = torch.tanh(base.mean)
         return ptu.to_numpy(action[0])
 
-    @torch.compile 
     def update_q(
         self,
         observations: torch.Tensor,
@@ -66,11 +64,12 @@ class SACBCAgent(nn.Module):
         """
         Update Q(s, a)
         """
-        q = self.critic.forward(observations, actions) # Critic-predicted Q
-        # Incorporate dones to avoid targeting a high value for continuing to move after task is completed
+        q = self.critic.forward(observations, actions)
         with torch.no_grad():
-            next_actions = self.actor(next_observations).rsample() # Don't trickle gradients into actor during q update
-        targets = rewards + (1 - dones) * self.discount * self.target_critic.forward(next_observations, next_actions)
+            next_actions = self.actor(next_observations).rsample()
+            next_qs = self.target_critic.forward(next_observations, next_actions)
+            next_q = next_qs.min(dim=0).values
+        targets = rewards + (1 - dones.float()) * self.discount * next_q
         loss = nn.functional.mse_loss(q, targets)
 
         self.critic_optimizer.zero_grad()
@@ -84,7 +83,6 @@ class SACBCAgent(nn.Module):
             "q_min": q.min(),
         }
 
-    # @torch.compile
     def update_actor(
         self,
         observations: torch.Tensor,
@@ -95,10 +93,13 @@ class SACBCAgent(nn.Module):
         """
         actor_dists = self.actor.forward(observations)
         actor_actions = actor_dists.rsample()
-        q_loss = -self.critic.forward(observations, actor_actions).mean()
+        qs = self.critic.forward(observations, actor_actions)
+        q = qs.min(dim=0).values
+        q_loss = -q.mean()
 
         mses = nn.functional.mse_loss(actor_actions, actions)
-        bc_loss = self.alpha * (1/actions.shape[1]) * mses
+        # bc_loss = self.alpha * (1/actions.shape[1]) * mses
+        bc_loss = -self.alpha * actor_dists.log_prob(actions).mean() #replaced so that we are actually approximating reverse KL with this constraint
 
         log_probs = actor_dists.log_prob(actor_actions).mean()
         entropy_loss = self.beta.forward() * log_probs
@@ -117,7 +118,6 @@ class SACBCAgent(nn.Module):
             "mse": mses.mean(),
         }
 
-    # @torch.compile
     def update_beta(
         self,
         observations: torch.Tensor,

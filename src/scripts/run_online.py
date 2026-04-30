@@ -199,8 +199,8 @@ def main(args):
         import configs
         config = configs.configs[base_config](args.env_name)
     else:
-        from configs.sacbc_config import sacbc_config
-        config = sacbc_config(args.env_name)
+        from configs.sac_dl_config import sac_dl_config
+        config = sac_dl_config(args.env_name)
 
     config["training_steps"] = args.training_steps
     config["seed"] = args.seed

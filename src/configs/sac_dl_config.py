@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import tqdm
 
-from agents.sacbc_agent import SACBCAgent
+from agents.sac_dl_agent import SACAgentDivLearn
 from infrastructure.replay_buffer import ReplayBuffer
 from infrastructure.utils import EpisodeMonitor
 from networks.rl_networks import Policy, EnsembleCritic, LogParam
@@ -24,7 +24,7 @@ DEFAULT_MINARI_DATASETS = {
 }
 
 
-def sacbc_config(
+def sac_dl_config(
     env_name: str,
     exp_name: Optional[str] = None,
     minari_dataset: Optional[str] = None,
@@ -82,8 +82,8 @@ def sacbc_config(
         "alpha": alpha,
     }
 
-    def make_agent(ob_dim: int, ac_dim: int, discrete: bool = False) -> SACBCAgent:
-        return SACBCAgent(
+    def make_agent(ob_dim: int, ac_dim: int, discrete: bool = False) -> SACAgentDivLearn:
+        return SACAgentDivLearn(
             observation_shape=(ob_dim,),
             action_dim=ac_dim,
             **agent_kwargs,

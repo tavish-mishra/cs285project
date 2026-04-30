@@ -1,5 +1,5 @@
-from configs.sacbc_config import sacbc_config
+from configs.sac_dl_config import sac_dl_config
 
 configs = {
-    "sacbc": sacbc_config,
+    "sacbc": sac_dl_config,
 }
