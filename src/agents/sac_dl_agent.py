@@ -22,6 +22,8 @@ class SACAgentDivLearn(nn.Module):
         make_critic_optimizer,
         make_beta,
         make_beta_optimizer,
+        make_encoder,
+        make_encoder_optimizer,
 
         discount: float,
         target_update_rate: float,
@@ -38,6 +40,9 @@ class SACAgentDivLearn(nn.Module):
         self.actor_optimizer = make_actor_optimizer(self.actor.parameters())
         self.critic_optimizer = make_critic_optimizer(self.critic.parameters())
         self.beta_optimizer = make_beta_optimizer(self.beta.parameters())
+
+        self.encoder = make_encoder(observation_shape, action_dim)
+        self.encoder_optimizer = make_encoder_optimizer(self.encoder.parameters())
 
         self.discount = discount
         self.target_update_rate = target_update_rate
@@ -89,6 +94,7 @@ class SACAgentDivLearn(nn.Module):
         actions: torch.Tensor,
     ):
         """
+        TODO: LET IT USE THE ENCODER FUNCTION TO ESTIMATE KL AS WELL
         Update the actor
         """
         actor_dists = self.actor.forward(observations)
@@ -140,6 +146,29 @@ class SACAgentDivLearn(nn.Module):
             "beta": self.beta(),
         }
 
+    def update_encoder(
+        self,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+    ): #TODO: ACCOUNT FOR SCHEDULING STUFF
+        actor_dists = self.actor(observations)
+        actor_actions = actor_dists.rsample()
+
+        z_policy = self.encoder(actor_actions)
+        z_expert = self.encoder(actions)
+
+        dot = (z_policy * z_expert).sum(dim=-1)
+
+        #TODO: IS THIS A GOOD TARGET?
+        kl_target = -actor_dists.log_prob(actions).detach()
+
+        loss = nn.functional.mse_loss(dot, kl_target)
+
+        self.encoder_optimizer.zero_grad()
+        loss.backward()
+        self.encoder_optimizer.step()
+        return {"encoder_loss": loss}
+
     def update(
         self,
         observations: torch.Tensor,
@@ -149,13 +178,17 @@ class SACAgentDivLearn(nn.Module):
         dones: torch.Tensor,
         step: int,
     ):
+
+        #TODO: ENCODER UPDATES EVERY SO OFTEN ACCOUNTING FOR RATE STUFF
         metrics_q = self.update_q(observations, actions, rewards, next_observations, dones)
         metrics_actor = self.update_actor(observations, actions)
         metrics_beta = self.update_beta(observations)
+        #metrics_encoder = self.update_encoder(observations, actions)
         metrics = {
             **{f"critic/{k}": v.item() for k, v in metrics_q.items()},
             **{f"actor/{k}": v.item() for k, v in metrics_actor.items()},
             **{f"beta/{k}": v.item() for k, v in metrics_beta.items()},
+            #**{f"encoder/{k}": v.item() for k, v in metrics_encoder.items()},
         }
 
         self.update_target_critic()

@@ -44,7 +44,7 @@ def sac_dl_config(
     warmup_steps: int = 5_000,
     update_every: int = 1,
     encoder_type : str = 'fcn', #or transformer
-    encoder_kwargs: dict = {},
+    encoder_kwargs: dict = None,
     **kwargs,
 ):
     """
@@ -80,6 +80,9 @@ def sac_dl_config(
     def make_optimizer(params: torch.nn.ParameterList) -> torch.optim.Optimizer:
         return torch.optim.Adam(params, lr=learning_rate)
 
+    def make_encoder_optimizer(params: torch.nn.ParameterList) -> torch.optim.Optimizer:
+        return torch.optim.Adam(params, lr=learning_rate) #TODO: kappa learning rate stuff
+
     def make_encoder(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
         obs_dim = int(np.prod(observation_shape))
         if encoder_type == 'fcn':
@@ -104,7 +107,7 @@ def sac_dl_config(
         "target_update_rate": target_update_rate,
         "alpha": alpha,
         'make_encoder': make_encoder,
-        'make_encoder_optimizer': make_optimizer,
+        'make_encoder_optimizer': make_encoder_optimizer,
     }
 
     def make_agent(ob_dim: int, ac_dim: int, discrete: bool = False) -> SACAgentDivLearn:
