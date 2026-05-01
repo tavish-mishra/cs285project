@@ -10,6 +10,9 @@ from agents.sac_dl_agent import SACAgentDivLearn
 from infrastructure.replay_buffer import ReplayBuffer
 from infrastructure.utils import EpisodeMonitor
 from networks.rl_networks import Policy, EnsembleCritic, LogParam
+from encoders.fcn_encoder import FCNEncoder
+from encoders.transformer_encoder import TransformerEncoder
+
 
 # Map gymnasium env IDs to default Minari dataset IDs.
 # "medium" datasets come from a partially-trained SAC policy — good diversity
@@ -40,6 +43,8 @@ def sac_dl_config(
     buffer_size: int = 1_000_000,
     warmup_steps: int = 5_000,
     update_every: int = 1,
+    encoder_type : str = 'fcn', #or transformer
+    encoder_kwargs: dict = {},
     **kwargs,
 ):
     """
@@ -75,6 +80,19 @@ def sac_dl_config(
     def make_optimizer(params: torch.nn.ParameterList) -> torch.optim.Optimizer:
         return torch.optim.Adam(params, lr=learning_rate)
 
+    def make_encoder(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
+        obs_dim = int(np.prod(observation_shape))
+        if encoder_type == 'fcn':
+            hidden_sizes = encoder_kwargs['hidden_sizes']
+            out_dim = encoder_kwargs['out_dim']
+            return FCNEncoder(action_dim, obs_dim, hidden_sizes, out_dim)
+        elif encoder_type == 'transformer':
+            d_model = encoder_kwargs['d_model']
+            out_dim = encoder_kwargs['out_dim']
+            num_layers = encoder_kwargs['num_layers']
+            num_heads = encoder_kwargs['num_heads']
+            return TransformerEncoder(action_dim, obs_dim, d_model, out_dim, num_layers, num_heads)
+
     agent_kwargs = {
         "make_actor": make_actor,
         "make_actor_optimizer": make_optimizer,
@@ -85,6 +103,8 @@ def sac_dl_config(
         "discount": discount,
         "target_update_rate": target_update_rate,
         "alpha": alpha,
+        'make_encoder': make_encoder,
+        'make_encoder_optimizer': make_optimizer,
     }
 
     def make_agent(ob_dim: int, ac_dim: int, discrete: bool = False) -> SACAgentDivLearn:

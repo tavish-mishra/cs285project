@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 
 #the transformer encoder, it can take in either actions or actions + states
-#since we aren't rly modeling a sequence here, attention operates across the features of the input
+#since we aren't really modeling a sequence here, attention operates across the features of the input
 #bottleneck, same rank, rank increase are just dependent on what you set out_dim to be
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, action_dim, obs_dim, d_model, out_dim, num_layers, num_heads):
+    def __init__(self, action_dim, obs_dim, d_model, out_dim, num_layers=2, num_heads=2):
         super(TransformerEncoder, self).__init__()
         self.input_dim = action_dim #+obs_dim, if we wanna go that route
         self.input_proj = nn.Linear(1, d_model)  # each input feature becomes a token
