@@ -94,7 +94,7 @@ class SACAgentDivLearn(nn.Module):
         actions: torch.Tensor,
     ):
         """
-        TODO: LET IT USE THE ENCODER FUNCTION TO ESTIMATE KL AS WELL
+
         Update the actor
         """
         actor_dists = self.actor.forward(observations)
@@ -105,6 +105,7 @@ class SACAgentDivLearn(nn.Module):
 
         mses = nn.functional.mse_loss(actor_actions, actions)
         # bc_loss = self.alpha * (1/actions.shape[1]) * mses
+        #TODO: UPDATE bc_loss to BE A MIXTURE OF STANDARD KL AND OUR MODEL ESTIMATE
         bc_loss = -self.alpha * actor_dists.log_prob(actions).mean() #replaced so that we are actually approximating reverse KL with this constraint
 
         log_probs = actor_dists.log_prob(actor_actions).mean()
@@ -150,7 +151,7 @@ class SACAgentDivLearn(nn.Module):
         self,
         observations: torch.Tensor,
         actions: torch.Tensor,
-    ): #TODO: ACCOUNT FOR SCHEDULING STUFF
+    ): #TODO: ACCOUNT FOR SCHEDULING STUFF, HOW TO MAKE IT UPDATE ONLY EVERY SO OFTEN
         actor_dists = self.actor(observations)
         actor_actions = actor_dists.rsample()
 
@@ -159,7 +160,6 @@ class SACAgentDivLearn(nn.Module):
 
         dot = (z_policy * z_expert).sum(dim=-1)
 
-        #TODO: IS THIS A GOOD TARGET?
         kl_target = -actor_dists.log_prob(actions).detach()
 
         loss = nn.functional.mse_loss(dot, kl_target)
