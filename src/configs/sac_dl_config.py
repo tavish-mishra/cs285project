@@ -18,7 +18,7 @@ from encoders.transformer_encoder import TransformerEncoder
 # "medium" datasets come from a partially-trained SAC policy — good diversity
 # for offline RL.  "expert" variants are also available.
 DEFAULT_MINARI_DATASETS = {
-    "Humanoid-v5": "mujoco/humanoid/medium-v0", #Should we try the one mixing expert and medium? "mujoco/humanoid/expert-v0"
+    "Humanoid-v5": "mujoco/humanoid/medium-v0",
     "Walker2d-v5": "mujoco/walker2d/medium-v0",
     "Walker2d-v4": "mujoco/walker2d/medium-v0",
     "HalfCheetah-v5": "mujoco/half_cheetah/medium-v0",
@@ -45,12 +45,16 @@ def sac_dl_config(
     update_every: int = 1,
     encoder_type : str = 'fcn', #or transformer
     encoder_kwargs: dict = None,
+    kappa: float = 0.1,#0.1 means update every 10 steps
+    dl_base_lr : float = 1e-3,
+    dl_lr_cap : float = 1e-2, #max effective LR after dividing by kappa
+    bc_ramp_scale: float = 100,
     **kwargs,
 ):
     """
     TODO: Adding the following parameters and implementing make_divlearn
 
-    Add following parameters: warm-up / DivLearn lr schedule kappa, dl_base_lr (divided by and clipped by kappa), DivLearn N bottleneck rank, DivLearn encoder type, DivLearn encoder layers
+    Add following parameters: warm-up / DivLearn lr schedule kappa, dl_base_lr (divided by and clipped by kappa)
     """
     resolved_dataset = minari_dataset or DEFAULT_MINARI_DATASETS.get(env_name)
 
@@ -81,7 +85,8 @@ def sac_dl_config(
         return torch.optim.Adam(params, lr=learning_rate)
 
     def make_encoder_optimizer(params: torch.nn.ParameterList) -> torch.optim.Optimizer:
-        return torch.optim.Adam(params, lr=learning_rate) #TODO: kappa learning rate stuff
+        encoder_learning_rate = min(dl_base_lr / kappa, dl_lr_cap)
+        return torch.optim.Adam(params, lr=encoder_learning_rate) #TODO: kappa learning rate stuff
 
     def make_encoder(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
         obs_dim = int(np.prod(observation_shape))
@@ -108,6 +113,8 @@ def sac_dl_config(
         "alpha": alpha,
         'make_encoder': make_encoder,
         'make_encoder_optimizer': make_encoder_optimizer,
+        "kappa": kappa,
+        'bc_ramp_scale': bc_ramp_scale,
     }
 
     def make_agent(ob_dim: int, ac_dim: int, discrete: bool = False) -> SACAgentDivLearn:

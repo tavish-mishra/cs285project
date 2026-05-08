@@ -24,10 +24,12 @@ class SACAgentDivLearn(nn.Module):
         make_beta_optimizer,
         make_encoder,
         make_encoder_optimizer,
+        bc_ramp_scale,
 
         discount: float,
         target_update_rate: float,
         alpha: float,
+        kappa,
     ):
         super().__init__()
 
@@ -43,10 +45,13 @@ class SACAgentDivLearn(nn.Module):
 
         self.encoder = make_encoder(observation_shape, action_dim)
         self.encoder_optimizer = make_encoder_optimizer(self.encoder.parameters())
+        self.kappa = kappa
+        self.encoder_update_freq = max(1, int(round(1 / self.kappa)))
 
         self.discount = discount
         self.target_update_rate = target_update_rate
         self.alpha = alpha
+        self.bc_ramp_scale = bc_ramp_scale
 
         self.target_entropy = -action_dim / 2  # Heuristic value (|A| / 2) from the SAC paper.
 
@@ -92,6 +97,7 @@ class SACAgentDivLearn(nn.Module):
         self,
         observations: torch.Tensor,
         actions: torch.Tensor,
+        step
     ):
         """
 
@@ -106,7 +112,16 @@ class SACAgentDivLearn(nn.Module):
         mses = nn.functional.mse_loss(actor_actions, actions)
         # bc_loss = self.alpha * (1/actions.shape[1]) * mses
         #TODO: UPDATE bc_loss to BE A MIXTURE OF STANDARD KL AND OUR MODEL ESTIMATE
-        bc_loss = -self.alpha * actor_dists.log_prob(actions).mean() #replaced so that we are actually approximating reverse KL with this constraint
+
+        bc_logprob = -self.alpha * actor_dists.log_prob(actions).mean() #replafirst ced so that we are actually approximating reverse KL with this constraint
+        z_policy = self.encoder(actor_actions)
+        z_expert = self.encoder(actions)
+        bc_encoder = (z_policy * z_expert).sum(dim=-1).mean()
+
+        encoder_loss_weight = (step * self.kappa) / (self.bc_ramp_scale + step * self.kappa)
+        bc_loss = ((1-encoder_loss_weight) * bc_logprob)  + (encoder_loss_weight * bc_encoder)
+
+
 
         log_probs = actor_dists.log_prob(actor_actions).mean()
         entropy_loss = self.beta.forward() * log_probs
@@ -181,14 +196,17 @@ class SACAgentDivLearn(nn.Module):
 
         #TODO: ENCODER UPDATES EVERY SO OFTEN ACCOUNTING FOR RATE STUFF
         metrics_q = self.update_q(observations, actions, rewards, next_observations, dones)
-        metrics_actor = self.update_actor(observations, actions)
+        metrics_actor = self.update_actor(observations, actions, step)
         metrics_beta = self.update_beta(observations)
         #metrics_encoder = self.update_encoder(observations, actions)
+        metrics_encoder = {}
+        if step % self.encoder_update_freq == 0:
+            metrics_encoder = self.update_encoder(observations, actions)
         metrics = {
             **{f"critic/{k}": v.item() for k, v in metrics_q.items()},
             **{f"actor/{k}": v.item() for k, v in metrics_actor.items()},
             **{f"beta/{k}": v.item() for k, v in metrics_beta.items()},
-            #**{f"encoder/{k}": v.item() for k, v in metrics_encoder.items()},
+            **({f"encoder/{k}": v.item() for k, v in metrics_encoder.items()} if metrics_encoder else {}),
         }
 
         self.update_target_critic()
