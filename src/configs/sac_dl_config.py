@@ -43,7 +43,8 @@ def sac_dl_config(
     buffer_size: int = 1_000_000,
     warmup_steps: int = 5_000,
     update_every: int = 1,
-    encoder_type : str = 'fcn', #or transformer
+
+    encoder_type : str = 'fcn', #or fcn or transformer
     encoder_kwargs: dict = None,
     kappa: float = 0.1,#0.1 means update every 10 steps
     dl_base_lr : float = 1e-3,
@@ -57,6 +58,15 @@ def sac_dl_config(
     Add following parameters: warm-up / DivLearn lr schedule kappa, dl_base_lr (divided by and clipped by kappa)
     """
     resolved_dataset = minari_dataset or DEFAULT_MINARI_DATASETS.get(env_name)
+    if encoder_kwargs is None:
+        if encoder_type == "fcn":
+            encoder_kwargs = {'hidden_sizes': [256, 256], 'out_dim': 64}
+        elif encoder_type == "transformer":
+            encoder_kwargs = {'d_model':64, 'out_dim': 64,
+                              'num_layers': 2, 'num_heads': 2}
+        else:
+            encoder_kwargs = {}
+
 
     def make_actor(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
         return Policy(
@@ -89,6 +99,8 @@ def sac_dl_config(
         return torch.optim.Adam(params, lr=encoder_learning_rate) #TODO: kappa learning rate stuff
 
     def make_encoder(observation_shape: Tuple[int, ...], action_dim: int) -> nn.Module:
+        if encoder_type == None:
+            return None
         obs_dim = int(np.prod(observation_shape))
         if encoder_type == 'fcn':
             hidden_sizes = encoder_kwargs['hidden_sizes']

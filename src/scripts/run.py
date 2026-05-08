@@ -14,6 +14,7 @@ from agents import agents
 from infrastructure import utils
 from infrastructure import pytorch_util as ptu
 from infrastructure.log_utils import setup_wandb, Logger, dump_log
+import json
 
 WANDB_PROJECT = "cs285_project"
 
@@ -105,6 +106,16 @@ def setup_arguments(args=None):
     parser.add_argument("--expectile", type=float, default=None)
     parser.add_argument("--alpha", type=float, default=None)
 
+    parser.add_argument('--encoder_type', type=str, default=None)
+    parser.add_argument('--kappa', type=float, default=None)
+    parser.add_argument('--dl_base_lr', type=float, default=None)
+    parser.add_argument('--dl_lr_cap', type=float, default=None)
+    parser.add_argument('--bc_ramp_scale', type=float, default=None)
+    parser.add_argument('--encoder_kwargs', type=json.loads, default=None,
+                        help='JSON dict, e.g. \'{"hidden_sizes":[256,256],"out_dim":64}\' '
+                             'for fcn, or \'{"d_model":64,"out_dim":64,"num_layers":2,"num_heads":2}\' '
+                             'for transformer')
+
     # For njobs mode (optional)
     parser.add_argument("--njobs", type=int, default=None)
     parser.add_argument("job_specs", nargs="*")
@@ -127,6 +138,18 @@ def main(args):
         config_kwargs["minari_dataset"] = args.minari_dataset
     if args.dataset_size is not None:
         config_kwargs["dataset_size"] = args.dataset_size
+    if args.encoder_type is not None:
+        config_kwargs["encoder_type"] = args.encoder_type
+    if args.encoder_kwargs is not None:
+        config_kwargs["encoder_kwargs"] = args.encoder_kwargs
+    if args.kappa is not None:
+        config_kwargs["kappa"] = args.kappa
+    if args.dl_base_lr is not None:
+        config_kwargs["dl_base_lr"] = args.dl_base_lr
+    if args.dl_lr_cap is not None:
+        config_kwargs["dl_lr_cap"] = args.dl_lr_cap
+    if args.bc_ramp_scale is not None:
+        config_kwargs["bc_ramp_scale"] = args.bc_ramp_scale
 
     config = configs.configs[args.base_config](args.env_name, **config_kwargs)
 

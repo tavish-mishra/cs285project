@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 from pathlib import Path
@@ -106,6 +107,12 @@ def cli(
     num_eval_trajectories: int = 10,
     alpha: float = 0.0,
     no_gpu: bool = False,
+    encoder_type : str= '',
+    kappa : float = 0,
+    dl_base_lr : float = 0,
+    dl_lr_cap : float = 0,
+    bc_ramp_scale : float = 0,
+    encoder_kwargs : str = '',
 ):
     """Launch a training run on Modal. All flags map to run.py arguments."""
     args: list[str] = [
@@ -126,5 +133,17 @@ def cli(
         args += ["--alpha", str(alpha)]
     if no_gpu:
         args.append("--no_gpu")
+    if encoder_type:
+        args += ["--encoder_type", encoder_type]
+    if kappa:
+        args += ["--kappa", str(kappa)]
+    if dl_base_lr:
+        args += ["--dl_base_lr", str(dl_base_lr)]
+    if dl_lr_cap:
+        args += ["--dl_lr_cap", str(dl_lr_cap)]
+    if bc_ramp_scale:
+        args += ["--bc_ramp_scale", str(bc_ramp_scale)]
+    if encoder_kwargs:
+        args += ["--encoder_kwargs", encoder_kwargs]
 
     modal_remote.remote(*args)

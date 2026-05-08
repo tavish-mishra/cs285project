@@ -43,10 +43,17 @@ class SACAgentDivLearn(nn.Module):
         self.critic_optimizer = make_critic_optimizer(self.critic.parameters())
         self.beta_optimizer = make_beta_optimizer(self.beta.parameters())
 
-        self.encoder = make_encoder(observation_shape, action_dim)
-        self.encoder_optimizer = make_encoder_optimizer(self.encoder.parameters())
-        self.kappa = kappa
-        self.encoder_update_freq = max(1, int(round(1 / self.kappa)))
+        encoder = make_encoder(observation_shape, action_dim)
+        if encoder is not None:
+            self.encoder = encoder.to(ptu.device)
+            self.encoder_optimizer = make_encoder_optimizer(self.encoder.parameters())
+            self.kappa = kappa
+            self.encoder_update_freq = max(1, int(round(1 / self.kappa)))
+            self._last_encoder_metrics: dict = {}
+        else:
+            self.encoder = None
+            self.encoder_optimizer = None
+            self._last_encoder_metrics = {}
 
         self.discount = discount
         self.target_update_rate = target_update_rate
@@ -114,12 +121,14 @@ class SACAgentDivLearn(nn.Module):
         #TODO: UPDATE bc_loss to BE A MIXTURE OF STANDARD KL AND OUR MODEL ESTIMATE
 
         bc_logprob = -self.alpha * actor_dists.log_prob(actions).mean() #replafirst ced so that we are actually approximating reverse KL with this constraint
-        z_policy = self.encoder(actor_actions)
-        z_expert = self.encoder(actions)
-        bc_encoder = (z_policy * z_expert).sum(dim=-1).mean()
-
-        encoder_loss_weight = (step * self.kappa) / (self.bc_ramp_scale + step * self.kappa)
-        bc_loss = ((1-encoder_loss_weight) * bc_logprob)  + (encoder_loss_weight * bc_encoder)
+        if self.encoder is not None:
+            z_policy = self.encoder(actor_actions)
+            z_expert = self.encoder(actions)
+            bc_encoder = (z_policy * z_expert).sum(dim=-1).mean()
+            encoder_loss_weight = (step * self.kappa) / (self.bc_ramp_scale + step * self.kappa)
+            bc_loss = ((1-encoder_loss_weight) * bc_logprob)  + (encoder_loss_weight * bc_encoder)
+        else:
+            bc_loss = bc_logprob
 
 
 
@@ -199,14 +208,13 @@ class SACAgentDivLearn(nn.Module):
         metrics_actor = self.update_actor(observations, actions, step)
         metrics_beta = self.update_beta(observations)
         #metrics_encoder = self.update_encoder(observations, actions)
-        metrics_encoder = {}
-        if step % self.encoder_update_freq == 0:
-            metrics_encoder = self.update_encoder(observations, actions)
+        if self.encoder is not None and step % self.encoder_update_freq == 0:
+            self._last_encoder_metrics = self.update_encoder(observations, actions)
         metrics = {
             **{f"critic/{k}": v.item() for k, v in metrics_q.items()},
             **{f"actor/{k}": v.item() for k, v in metrics_actor.items()},
             **{f"beta/{k}": v.item() for k, v in metrics_beta.items()},
-            **({f"encoder/{k}": v.item() for k, v in metrics_encoder.items()} if metrics_encoder else {}),
+            **{f"encoder/{k}": v.item() for k, v in self._last_encoder_metrics.items()},
         }
 
         self.update_target_critic()
