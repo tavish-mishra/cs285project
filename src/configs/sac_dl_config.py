@@ -44,7 +44,7 @@ def sac_dl_config(
     warmup_steps: int = 5_000,
     update_every: int = 1,
 
-    encoder_type : str = 'fcn', #or fcn or transformer
+    encoder_type : str = None, #or fcn or transformer
     encoder_kwargs: dict = None,
     kappa: float = 0.1,#0.1 means update every 10 steps
     dl_base_lr : float = 1e-3,
