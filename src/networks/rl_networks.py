@@ -78,7 +78,7 @@ class Policy(nn.Module):
         else:
             if self.state_dependent_std:
                 mean, std = torch.chunk(self.net(obs), 2, dim=-1)
-                std = torch.nn.functional.softplus(std) + 1e-2
+                std = torch.nn.functional.softplus(std.clamp(-5.0, 2.0)) + 1e-2
             else:
                 mean = self.net(obs)
                 if self.fixed_std:

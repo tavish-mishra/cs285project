@@ -46,9 +46,9 @@ def sac_dl_config(
 
     encoder_type : str = None, #or fcn or transformer
     encoder_kwargs: dict = None,
-    kappa: float = 0.1,#0.1 means update every 10 steps
+    kappa: float = 0.01,#0.01 means update every 100 steps
     dl_base_lr : float = 1e-3,
-    dl_lr_cap : float = 1e-2, #max effective LR after dividing by kappa
+    dl_lr_cap : float = 1e-3, #max effective LR after dividing by kappa
     bc_ramp_scale: float = 100,
     **kwargs,
 ):

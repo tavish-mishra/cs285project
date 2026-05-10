@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import numpy as np
 import infrastructure.pytorch_util as ptu
+import torch.nn.functional as F
 
 from typing import Callable, Optional, Sequence, Tuple, List
 
@@ -83,14 +84,17 @@ class SACAgentDivLearn(nn.Module):
         """
         q = self.critic.forward(observations, actions)
         with torch.no_grad():
-            next_actions = self.actor(next_observations).rsample()
+            next_dist = self.actor(next_observations)
+            next_actions = next_dist.rsample()
+            next_log_prob = next_dist.log_prob(next_actions).clamp(min=-50.0, max=50.0)
             next_qs = self.target_critic.forward(next_observations, next_actions)
-            next_q = next_qs.min(dim=0).values
+            next_q = next_qs.min(dim=0).values - self.beta() * next_log_prob
         targets = rewards + (1 - dones.float()) * self.discount * next_q
         loss = nn.functional.mse_loss(q, targets)
 
         self.critic_optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
         self.critic_optimizer.step()
 
         return {
@@ -118,13 +122,16 @@ class SACAgentDivLearn(nn.Module):
 
         mses = nn.functional.mse_loss(actor_actions, actions)
         # bc_loss = self.alpha * (1/actions.shape[1]) * mses
-        #TODO: UPDATE bc_loss to BE A MIXTURE OF STANDARD KL AND OUR MODEL ESTIMATE
-
-        bc_logprob = -self.alpha * actor_dists.log_prob(actions).mean() #replafirst ced so that we are actually approximating reverse KL with this constraint
+        #TODO: UPDATE bc_loss to BE A MIXTURE OF REVERSE KL AND OUR MODEL ESTIMATE
+        actions_clipped = actions.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+        bc_logprob = -self.alpha * actor_dists.log_prob(actions_clipped).clamp(min=-50.0, max=50.0).mean()
         if self.encoder is not None:
             z_policy = self.encoder(actor_actions)
-            z_expert = self.encoder(actions)
-            bc_encoder = (z_policy * z_expert).sum(dim=-1).mean()
+            with torch.no_grad():
+                z_expert = self.encoder(actions)
+            sim = F.cosine_similarity(z_policy, z_expert, dim=-1)
+            bc_encoder = -sim.mean()
+            ##bc_encoder = (z_policy * z_expert).sum(dim=-1).mean()
             encoder_loss_weight = (step * self.kappa) / (self.bc_ramp_scale + step * self.kappa)
             bc_loss = ((1-encoder_loss_weight) * bc_logprob)  + (encoder_loss_weight * bc_encoder)
         else:
@@ -139,6 +146,7 @@ class SACAgentDivLearn(nn.Module):
 
         self.actor_optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1.0)
         self.actor_optimizer.step()
 
         return {
@@ -158,12 +166,13 @@ class SACAgentDivLearn(nn.Module):
         """
         actor_dists = self.actor(observations)
         actor_actions = actor_dists.rsample()
-        log_probs = actor_dists.log_prob(actor_actions)
+        log_probs = actor_dists.log_prob(actor_actions).clamp(min=-50.0, max=50.0)
 
         loss = self.beta() * (-log_probs - self.target_entropy).detach().mean()
 
         self.beta_optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.beta.parameters(), 1.0)
         self.beta_optimizer.step()
 
         return {
@@ -184,12 +193,13 @@ class SACAgentDivLearn(nn.Module):
 
         dot = (z_policy * z_expert).sum(dim=-1)
 
-        kl_target = -actor_dists.log_prob(actions).detach()
+        kl_target = (-actor_dists.log_prob(actions)).clamp(min=-50.0, max=50.0).detach()
 
         loss = nn.functional.mse_loss(dot, kl_target)
 
         self.encoder_optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), 1.0)
         self.encoder_optimizer.step()
         return {"encoder_loss": loss}
 
