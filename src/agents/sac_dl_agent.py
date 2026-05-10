@@ -184,18 +184,24 @@ class SACAgentDivLearn(nn.Module):
         self,
         observations: torch.Tensor,
         actions: torch.Tensor,
-    ): #TODO: ACCOUNT FOR SCHEDULING STUFF, HOW TO MAKE IT UPDATE ONLY EVERY SO OFTEN
+    ):
+
+        actions_clipped = actions.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
         actor_dists = self.actor(observations)
         actor_actions = actor_dists.rsample()
 
         z_policy = self.encoder(actor_actions)
-        z_expert = self.encoder(actions)
+        z_expert = self.encoder(actions_clipped)
 
         dot = (z_policy * z_expert).sum(dim=-1)
+        sim = F.cosine_similarity(z_policy, z_expert, dim=-1)
 
-        kl_target = (-actor_dists.log_prob(actions)).clamp(min=-50.0, max=50.0).detach()
+        # kl_target = (-actor_dists.log_prob(actions_clipped)).clamp(min=-50.0, max=50.0).detach()
+        KL_SCALE = 20.0  # hyperparameter
+        nll = -actor_dists.log_prob(actions_clipped).detach()
+        kl_target = torch.tanh(nll / KL_SCALE)
 
-        loss = nn.functional.mse_loss(dot, kl_target)
+        loss = nn.functional.mse_loss(sim, kl_target)
 
         self.encoder_optimizer.zero_grad()
         loss.backward()
