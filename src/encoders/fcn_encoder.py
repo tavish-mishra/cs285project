@@ -21,6 +21,7 @@ class FCNEncoder(nn.Module): #basic FCN encoder, I just made the number of hidde
         self.layers.append(nn.Linear(hidden_sizes[-1], out_dim))
 
     def forward(self, x): #x could be just the action batch, or the batch of actions and states concatenated
+        #input size is (batch, 17)
         for layer in self.layers:
             x = layer(x)
         return x

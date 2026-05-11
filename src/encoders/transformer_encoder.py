@@ -22,6 +22,7 @@ class TransformerEncoder(nn.Module):
     def forward(self, x):
         #so basically, you attend to each feature of the input and then aggregate via
         # mean to obtain a representation of the state-action pairs or of the actions
+        # input size is (batch, 17)
         x = x.unsqueeze(-1)        # (batch, input_dim, 1)
         x = self.input_proj(x)     # (batch, input_dim, d_model)
         x = self.transformer(x)    # (batch, input_dim, d_model)
