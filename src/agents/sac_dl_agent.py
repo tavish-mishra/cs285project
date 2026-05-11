@@ -153,7 +153,8 @@ class SACAgentDivLearn(nn.Module):
 
         mses = nn.functional.mse_loss(actor_actions, actions)
         # bc_loss = self.alpha * (1/actions.shape[1]) * mses
-        bc_logprob = (-self.alpha * actor_dists.log_prob(actions)).mean()
+        actions_safe = actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
+        bc_logprob = (-self.alpha * actor_dists.log_prob(actions_safe)).mean()
         # actions_clipped = actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
         # bc_logprob_raw = actor_dists.log_prob(actions_clipped)
         # _check("actor.bc_logprob_raw", bc_logprob_raw)
@@ -175,7 +176,7 @@ class SACAgentDivLearn(nn.Module):
 
 
 
-        log_probs_raw = (actor_dists.log_prob(actor_actions)).mean()
+        log_probs_raw = (actor_dists.log_prob(actor_actions_safe)).mean()
         _check("actor.log_probs_raw", log_probs_raw)
         log_probs = _safe_clamp(log_probs_raw, -50.0, 50.0).mean()
         entropy_loss = self.beta.forward() * log_probs_raw
@@ -208,7 +209,7 @@ class SACAgentDivLearn(nn.Module):
         actor_dists = self.actor(observations)
         actor_actions = actor_dists.rsample()
         actor_actions_safe = actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
-        log_probs_raw = actor_dists.log_prob(actor_actions)
+        log_probs_raw = actor_dists.log_prob(actor_actions_safe)
         _check("beta.log_probs_raw", log_probs_raw)
         log_probs = _safe_clamp(log_probs_raw, -50.0, 50.0)
 
