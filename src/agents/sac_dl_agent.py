@@ -80,6 +80,7 @@ class SACAgentDivLearn(nn.Module):
         self.target_update_rate = target_update_rate
         self.alpha = alpha
         self.bc_ramp_scale = bc_ramp_scale
+        self.kl_scale = 20
 
         self.target_entropy = -action_dim / 2  # Heuristic value (|A| / 2) from the SAC paper.
 
@@ -160,16 +161,15 @@ class SACAgentDivLearn(nn.Module):
         # bc_logprob = (CAP * torch.tanh(torch.nan_to_num(bc_logprob_raw, nan=0.0) / CAP)).mean()
         # # bc_logprob = -self.alpha * _safe_clamp(bc_logprob_raw, -50.0, 50.0).mean()
         if self.encoder is not None:
-            z_policy = self.encoder(actor_actions)
             with torch.no_grad():
                 z_expert = self.encoder(actions)
+                z_policy = self.encoder(actor_actions)
             _check("actor.z_policy", z_policy)
             _check("actor.z_expert", z_expert)
-            sim = F.cosine_similarity(z_policy, z_expert, dim=-1, eps=1e-6)
-            bc_encoder = -sim.mean()
-            ##bc_encoder = (z_policy * z_expert).sum(dim=-1).mean()
+            dot = (z_policy * z_expert).sum(dim=-1)
+            bc_encoder = -self.kl_scale * dot.mean()
             encoder_loss_weight = (step * self.kappa) / (self.bc_ramp_scale + step * self.kappa)
-            bc_loss = ((1-encoder_loss_weight) * bc_logprob)  + (encoder_loss_weight * bc_encoder)
+            bc_loss = ((1 - encoder_loss_weight) * bc_logprob) + (encoder_loss_weight * bc_encoder)
         else:
             bc_loss = bc_logprob
 
@@ -227,16 +227,19 @@ class SACAgentDivLearn(nn.Module):
             #"grad_norm": beta_grad_norm,
         #}
 
-    def update_encoder(
-        self,
-        observations: torch.Tensor,
-        actions: torch.Tensor,
-    ):
+    def update_encoder(self, observations, actions):
+        actions_clipped = actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
 
-        actions_clipped = actions#actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
-        actor_dists = self.actor(observations)
-        actor_actions = actor_dists.rsample()
-        actor_actions_safe = actor_actions#actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
+        with torch.no_grad():
+            actor_dists = self.actor(observations)
+            actor_actions = actor_dists.rsample()
+            actor_actions_safe = actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
+
+            nll_raw = -actor_dists.log_prob(actions_clipped)
+            _check("encoder.nll_raw", nll_raw)
+            nll = _safe_clamp(nll_raw, -1e4, 1e4)
+            kl_target = -torch.tanh(nll / self.kl_scale)
+            _check("encoder.kl_target", kl_target)
 
         z_policy = self.encoder(actor_actions_safe)
         z_expert = self.encoder(actions_clipped)
@@ -244,25 +247,20 @@ class SACAgentDivLearn(nn.Module):
         _check("encoder.z_expert", z_expert)
 
         dot = (z_policy * z_expert).sum(dim=-1)
-        sim = F.cosine_similarity(z_policy, z_expert, dim=-1, eps=1e-6)
         _check("encoder.dot", dot)
 
-        # kl_target = (-actor_dists.log_prob(actions_clipped)).clamp(min=-50.0, max=50.0).detach()
-        KL_SCALE = 20.0  # hyperparameter
-        nll_raw = -actor_dists.log_prob(actions_clipped).detach()
-        _check("encoder.nll_raw", nll_raw)
-        nll = nll_raw#_safe_clamp(nll_raw, -1e6, 1e6)
-        kl_target = nll_raw#torch.tanh(nll / KL_SCALE)
-
-        loss = nn.functional.mse_loss(dot, kl_target)
+        loss = F.mse_loss(dot, kl_target)
         _check("encoder.loss", loss)
 
         self.encoder_optimizer.zero_grad()
         loss.backward()
-        #encoder_grad_norm = torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), 1.0)
-        #_check("encoder.grad_norm", encoder_grad_norm)
-        self.encoder_optimizer.step()
-        return {"encoder_loss": loss}#, "grad_norm": encoder_grad_norm}
+
+        return {
+            "encoder_loss": loss,
+            "dot_mean": dot.mean(),
+            "kl_target_mean": kl_target.mean(),
+            "nll_raw_mean": nll_raw.mean(),
+        }
 
     def update(
         self,
