@@ -25,7 +25,7 @@ def _safe_clamp(x: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
     return torch.nan_to_num(x, nan=0.0, posinf=hi, neginf=lo).clamp(lo, hi)
 
 
-_ACT_EPS = 1e-6
+_ACT_EPS = 1e-3
 
 
 class SACAgentDivLearn(nn.Module):
@@ -120,17 +120,17 @@ class SACAgentDivLearn(nn.Module):
 
         self.critic_optimizer.zero_grad()
         loss.backward()
-        critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
-        _check("critic.grad_norm", critic_grad_norm)
+        #critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
+        #_check("critic.grad_norm", critic_grad_norm)
         self.critic_optimizer.step()
 
         return {
             "q_loss": loss,
             "q_mean": q.mean(),
             "q_max": q.max(),
-            "q_min": q.min(),
-            "grad_norm": critic_grad_norm,
-        }
+            "q_min": q.min()}#,
+            #"grad_norm": critic_grad_norm,
+        #}
 
     def update_actor(
         self,
@@ -146,21 +146,23 @@ class SACAgentDivLearn(nn.Module):
         actor_actions = actor_dists.rsample()
         _check("actor.actor_actions", actor_actions)
         actor_actions_safe = actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
-        qs = self.critic.forward(observations, actor_actions_safe)
+        qs = self.critic.forward(observations, actor_actions)
         q = qs.min(dim=0).values
         q_loss = -q.mean()
 
-        mses = nn.functional.mse_loss(actor_actions_safe, actions)
+        mses = nn.functional.mse_loss(actor_actions, actions)
         # bc_loss = self.alpha * (1/actions.shape[1]) * mses
-        #TODO: UPDATE bc_loss to BE A MIXTURE OF REVERSE KL AND OUR MODEL ESTIMATE
-        actions_clipped = actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
-        bc_logprob_raw = actor_dists.log_prob(actions_clipped)
-        _check("actor.bc_logprob_raw", bc_logprob_raw)
-        bc_logprob = -self.alpha * _safe_clamp(bc_logprob_raw, -50.0, 50.0).mean()
+        bc_logprob = (-self.alpha * actor_dists.log_prob(actions)).mean()
+        # actions_clipped = actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
+        # bc_logprob_raw = actor_dists.log_prob(actions_clipped)
+        # _check("actor.bc_logprob_raw", bc_logprob_raw)
+        # CAP = 50.0
+        # bc_logprob = (CAP * torch.tanh(torch.nan_to_num(bc_logprob_raw, nan=0.0) / CAP)).mean()
+        # # bc_logprob = -self.alpha * _safe_clamp(bc_logprob_raw, -50.0, 50.0).mean()
         if self.encoder is not None:
-            z_policy = self.encoder(actor_actions_safe)
+            z_policy = self.encoder(actor_actions)
             with torch.no_grad():
-                z_expert = self.encoder(actions_clipped)
+                z_expert = self.encoder(actions)
             _check("actor.z_policy", z_policy)
             _check("actor.z_expert", z_expert)
             sim = F.cosine_similarity(z_policy, z_expert, dim=-1, eps=1e-6)
@@ -173,18 +175,18 @@ class SACAgentDivLearn(nn.Module):
 
 
 
-        log_probs_raw = actor_dists.log_prob(actor_actions_safe)
+        log_probs_raw = (actor_dists.log_prob(actor_actions)).mean()
         _check("actor.log_probs_raw", log_probs_raw)
         log_probs = _safe_clamp(log_probs_raw, -50.0, 50.0).mean()
-        entropy_loss = self.beta.forward() * log_probs
+        entropy_loss = self.beta.forward() * log_probs_raw
 
         loss = q_loss + bc_loss + entropy_loss
         _check("actor.loss", loss)
 
         self.actor_optimizer.zero_grad()
         loss.backward()
-        actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1.0)
-        _check("actor.grad_norm", actor_grad_norm)
+        #actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1.0)
+        #_check("actor.grad_norm", actor_grad_norm)
         self.actor_optimizer.step()
 
         return {
@@ -192,9 +194,9 @@ class SACAgentDivLearn(nn.Module):
             "q_loss": q_loss,
             "bc_loss": bc_loss,
             "entropy_loss": entropy_loss,
-            "mse": mses.mean(),
-            "grad_norm": actor_grad_norm,
-        }
+            "mse": mses.mean()}#,
+           # "grad_norm": actor_grad_norm,
+     #   }
 
     def update_beta(
         self,
@@ -206,24 +208,24 @@ class SACAgentDivLearn(nn.Module):
         actor_dists = self.actor(observations)
         actor_actions = actor_dists.rsample()
         actor_actions_safe = actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
-        log_probs_raw = actor_dists.log_prob(actor_actions_safe)
+        log_probs_raw = actor_dists.log_prob(actor_actions)
         _check("beta.log_probs_raw", log_probs_raw)
         log_probs = _safe_clamp(log_probs_raw, -50.0, 50.0)
 
-        loss = self.beta() * (-log_probs - self.target_entropy).detach().mean()
+        loss = self.beta() * (-log_probs_raw - self.target_entropy).detach().mean()
         _check("beta.loss", loss)
 
         self.beta_optimizer.zero_grad()
         loss.backward()
-        beta_grad_norm = torch.nn.utils.clip_grad_norm_(self.beta.parameters(), 1.0)
-        _check("beta.grad_norm", beta_grad_norm)
+        #beta_grad_norm = torch.nn.utils.clip_grad_norm_(self.beta.parameters(), 1.0)
+        #_check("beta.grad_norm", beta_grad_norm)
         self.beta_optimizer.step()
 
         return {
             "beta_loss": loss,
-            "beta": self.beta(),
-            "grad_norm": beta_grad_norm,
-        }
+            "beta": self.beta()}#,
+            #"grad_norm": beta_grad_norm,
+        #}
 
     def update_encoder(
         self,
@@ -231,10 +233,10 @@ class SACAgentDivLearn(nn.Module):
         actions: torch.Tensor,
     ):
 
-        actions_clipped = actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
+        actions_clipped = actions#actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
         actor_dists = self.actor(observations)
         actor_actions = actor_dists.rsample()
-        actor_actions_safe = actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
+        actor_actions_safe = actor_actions#actor_actions.clamp(-1.0 + _ACT_EPS, 1.0 - _ACT_EPS)
 
         z_policy = self.encoder(actor_actions_safe)
         z_expert = self.encoder(actions_clipped)
@@ -243,24 +245,24 @@ class SACAgentDivLearn(nn.Module):
 
         dot = (z_policy * z_expert).sum(dim=-1)
         sim = F.cosine_similarity(z_policy, z_expert, dim=-1, eps=1e-6)
-        _check("encoder.sim", sim)
+        _check("encoder.dot", dot)
 
         # kl_target = (-actor_dists.log_prob(actions_clipped)).clamp(min=-50.0, max=50.0).detach()
         KL_SCALE = 20.0  # hyperparameter
         nll_raw = -actor_dists.log_prob(actions_clipped).detach()
         _check("encoder.nll_raw", nll_raw)
-        nll = _safe_clamp(nll_raw, -1e6, 1e6)
-        kl_target = torch.tanh(nll / KL_SCALE)
+        nll = nll_raw#_safe_clamp(nll_raw, -1e6, 1e6)
+        kl_target = nll_raw#torch.tanh(nll / KL_SCALE)
 
-        loss = nn.functional.mse_loss(sim, kl_target)
+        loss = nn.functional.mse_loss(dot, kl_target)
         _check("encoder.loss", loss)
 
         self.encoder_optimizer.zero_grad()
         loss.backward()
-        encoder_grad_norm = torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), 1.0)
-        _check("encoder.grad_norm", encoder_grad_norm)
+        #encoder_grad_norm = torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), 1.0)
+        #_check("encoder.grad_norm", encoder_grad_norm)
         self.encoder_optimizer.step()
-        return {"encoder_loss": loss, "grad_norm": encoder_grad_norm}
+        return {"encoder_loss": loss}#, "grad_norm": encoder_grad_norm}
 
     def update(
         self,
