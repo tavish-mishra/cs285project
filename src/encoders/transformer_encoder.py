@@ -10,6 +10,8 @@ class TransformerEncoder(nn.Module):
         super(TransformerEncoder, self).__init__()
         self.input_dim = action_dim #+obs_dim, if we wanna go that route
         self.input_proj = nn.Linear(1, d_model)  # each input feature becomes a token
+        #self.pos_embed = nn.Parameter(torch.zeros(self.input_dim, d_model))
+        #nn.init_normal_(self.pos_embed, std=0.02)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=num_heads,
@@ -25,6 +27,7 @@ class TransformerEncoder(nn.Module):
         # input size is (batch, 17)
         x = x.unsqueeze(-1)        # (batch, input_dim, 1)
         x = self.input_proj(x)     # (batch, input_dim, d_model)
+        #x = x + self.pos_embed
         x = self.transformer(x)    # (batch, input_dim, d_model)
         x = x.mean(dim=1)          # (batch, d_model)
         return self.output_proj(x)
