@@ -255,6 +255,7 @@ class SACAgentDivLearn(nn.Module):
 
         self.encoder_optimizer.zero_grad()
         loss.backward()
+        self.encoder_optimizer.step()
 
         return {
             "encoder_loss": loss,
