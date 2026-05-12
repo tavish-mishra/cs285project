@@ -163,12 +163,13 @@ class SACAgentDivLearn(nn.Module):
         # # bc_logprob = -self.alpha * _safe_clamp(bc_logprob_raw, -50.0, 50.0).mean()
         if self.encoder is not None:
             with torch.no_grad():
-                z_expert = self.encoder(actions)
-            z_policy = self.encoder(actor_actions)
+                z_expert = F.normalize(self.encoder(actions), dim=-1)
+            z_policy = F.normalize(self.encoder(actor_actions_safe), dim=-1)
             _check("actor.z_policy", z_policy)
             _check("actor.z_expert", z_expert)
             dot = (z_policy * z_expert).sum(dim=-1)
-            bc_encoder = -self.kl_scale * dot.mean()
+            sim = ((dot + 1) / 2).clamp(min=1e-6)
+            bc_encoder = -self.kl_scale * torch.log(sim).mean()
             encoder_loss_weight = (step * self.kappa) / (self.bc_ramp_scale + step * self.kappa)
             bc_loss = ((1 - encoder_loss_weight) * bc_logprob) + (encoder_loss_weight * bc_encoder)
         else:
@@ -239,18 +240,21 @@ class SACAgentDivLearn(nn.Module):
             nll_raw = -actor_dists.log_prob(actions_clipped)
             _check("encoder.nll_raw", nll_raw)
             nll = _safe_clamp(nll_raw, -1e4, 1e4)
-            kl_target = -torch.tanh(nll / self.kl_scale)
+            kl_target =  (-nll / self.kl_scale).clamp(min=-10, max=0)#clamped max to 0 just cuz log prob properties
             _check("encoder.kl_target", kl_target)
 
-        z_policy = self.encoder(actor_actions_safe)
-        z_expert = self.encoder(actions_clipped)
+        z_policy = F.normalize(self.encoder(actor_actions_safe), dim=-1)
+        z_expert = F.normalize(self.encoder(actions_clipped), dim=-1)
         _check("encoder.z_policy", z_policy)
         _check("encoder.z_expert", z_expert)
 
         dot = (z_policy * z_expert).sum(dim=-1)
         _check("encoder.dot", dot)
+        dot_square = torch.square(dot) #squared to enforce nonnegativity
+        sim = ((dot + 1) / 2).clamp(min=1e-6)
+        log_dot = torch.log(sim) #adding the epsilon just so that we enforce positivity too
 
-        loss = F.mse_loss(dot, kl_target)
+        loss = F.mse_loss(log_dot, kl_target)
         _check("encoder.loss", loss)
 
         self.encoder_optimizer.zero_grad()
@@ -260,6 +264,7 @@ class SACAgentDivLearn(nn.Module):
         return {
             "encoder_loss": loss,
             "dot_mean": dot.mean(),
+            'log_dot_mean': log_dot.mean(),
             "kl_target_mean": kl_target.mean(),
             "nll_raw_mean": nll_raw.mean(),
         }
