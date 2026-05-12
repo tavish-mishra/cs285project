@@ -164,7 +164,7 @@ class SACAgentDivLearn(nn.Module):
         if self.encoder is not None:
             with torch.no_grad():
                 z_expert = self.encoder(actions)
-                z_policy = self.encoder(actor_actions)
+            z_policy = self.encoder(actor_actions)
             _check("actor.z_policy", z_policy)
             _check("actor.z_expert", z_expert)
             dot = (z_policy * z_expert).sum(dim=-1)
