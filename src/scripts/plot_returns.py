@@ -40,18 +40,18 @@ def make_label(family, depth, target):
     if family == "Baseline":
         return "Baseline (SAC+BC)"
     if depth is not None:
-        return f"{family}-{depth}L · {target}"
-    return f"{family} · {target}"
+        return f"{family}-{depth}L"
+    return f"{family}"
 
 
 STYLES = {
-    ("FCN", "2", "linear"):     dict(color="#1f77b4", linestyle="-"),
-    ("FCN", "2", "log"):        dict(color="#1f77b4", linestyle="--"),
-    ("FCN", "3", "linear"):     dict(color="#d62728", linestyle="-"),
-    ("FCN", "3", "log"):        dict(color="#d62728", linestyle="--"),
-    ("Transformer", None, "linear"): dict(color="#2ca02c", linestyle="-"),
-    ("Transformer", None, "log"):    dict(color="#2ca02c", linestyle="--"),
-    ("Baseline", None, None):   dict(color="black", linestyle=":", linewidth=2),
+    ("FCN", "2", "linear"):     dict(color="#1f77b4"),
+    ("FCN", "2", "log"):        dict(color="#1f77b4"),
+    ("FCN", "3", "linear"):     dict(color="#d62728"),
+    ("FCN", "3", "log"):        dict(color="#d62728"),
+    ("Transformer", None, "linear"): dict(color="#2ca02c"),
+    ("Transformer", None, "log"):    dict(color="#2ca02c"),
+    ("Baseline", None, None):   dict(color="black"),
 }
 
 
@@ -69,7 +69,7 @@ def plot_single_run(run_group: str, variant: str, df: pd.DataFrame, save_dir: Pa
         title = "Mean Return on Humanoid (Baseline SAC+BC)"
     else:
         model = f"FCN-{depth}L" if depth is not None else "Transformer"
-        title = f"Mean Return on Humanoid with {model} Encoder and {target.capitalize()} Target"
+        title = f"Mean Return on Humanoid with {model} Encoder" #and {target.capitalize()} Target"
 
     fig, ax = plt.subplots(figsize=(8, 5))
     style = STYLES.get((fam, depth, target), {}) or {"color": "#1f77b4"}
@@ -78,7 +78,7 @@ def plot_single_run(run_group: str, variant: str, df: pd.DataFrame, save_dir: Pa
     ax.set_xlabel("Training step")
     ax.set_ylabel("Eval mean return")
     ax.grid(alpha=0.3)
-    ax.legend(loc="lower right")
+    #ax.legend(loc="lower right")
     fig.tight_layout()
 
     out_path = save_dir / f"{run_group}__{variant}.png"
@@ -89,7 +89,7 @@ def plot_single_run(run_group: str, variant: str, df: pd.DataFrame, save_dir: Pa
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-root", type=Path, default=Path("modal_exp"))
+    parser.add_argument("--exp-root", type=Path, default=Path("modal_exp_tavish"))
     parser.add_argument("--save", type=Path, default=None,
                         help="Path for the combined grid plot. Ignored when --individual is set.")
     parser.add_argument("--individual", action="store_true",
